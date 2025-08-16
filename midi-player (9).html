@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MIDI Player — Release v1.0.0</title>
+
+<!-- Libraries (UMD builds) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
+
+<style>
+  :root{
+    --bg1:#667eea; --bg2:#764ba2;
+    --card-bg:rgba(255,255,255,0.98);
+    --muted:#6b7280;
+    --accent1:#2196F3; --accent2:#1976D2;
+    --success1:#4CAF50; --danger1:#f44336;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+    background:linear-gradient(135deg,var(--bg1),var(--bg2));
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:20px; color:#0f172a;
+  }
+
+  .card{
+    width:100%; max-width:1150px; background:var(--card-bg);
+    border-radius:14px; padding:20px; box-shadow:0 18px 40px rgba(2,6,23,0.18);
+    display:flex; flex-direction:column; gap:12px;
+  }
+
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  header h1{font-size:1.25rem;margin:0}
+  header p{margin:0;color:var(--muted);font-size:0.95rem}
+
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .file-input input{display:none}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:none;
+    color:white;font-weight:700;font-size:0.95rem;cursor:pointer;
+    background:linear-gradient(45deg,var(--accent1),var(--accent2));
+    transition:transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn.secondary{background:linear-gradient(45deg,var(--success1),#2e7d32)}
+  .btn.stop{background:linear-gradient(45deg,var(--danger1),#d32f2f)}
+  .btn[disabled]{opacity:0.6;cursor:not-allowed}
+
+  .controls-right{display:flex;gap:12px;align-items:center;margin-left:auto}
+  .volume{display:flex;align-items:center;gap:8px}
+  input[type=range]{cursor:pointer}
+
+  .status{padding:8px;border-radius:8px;background:#f3f5f7;color:#0f172a;font-weight:600;text-align:center}
+  .progress-wrap{height:10px;background:#eee;border-radius:999px;overflow:hidden;margin-top:6px}
+  .progress{height:100%;width:0%;background:linear-gradient(45deg,#ff6b6b,#ee5a52);transition:width 120ms linear}
+
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .time{font-weight:600;color:var(--muted);min-width:120px;text-align:center}
+
+  /* Piano */
+  .piano-container{margin-top:14px;background:#0b1220;padding:12px;border-radius:10px;overflow:auto}
+  .piano{display:flex;position:relative;padding:12px;border-radius:8px;align-items:flex-end}
+  .white-wrapper{position:relative;display:inline-block;margin:0 1px}
+  .white-key{
+    width:44px;height:170px;background:linear-gradient(#fff,#f3f3f3);border-radius:0 0 8px 8px;border:1px solid #ddd;
+    box-shadow:0 8px 18px rgba(2,6,23,0.08);cursor:pointer;display:flex;align-items:flex-end;justify-content:center;
+    padding-bottom:8px;font-size:11px;color:#333;transition:background 140ms ease, transform 80ms, box-shadow 80ms, opacity 180ms;
+    opacity:1;
+  }
+  .black-key{
+    position:absolute;top:0;left:28px;width:30px;height:110px;background:linear-gradient(#111,#000);
+    border-radius:0 0 6px 6px;z-index:3;box-shadow:0 8px 18px rgba(0,0,0,0.35);cursor:pointer;
+    display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;font-size:10px;color:#fff;
+    transition:background 140ms ease, transform 80ms, box-shadow 80ms, opacity 180ms;opacity:1;
+  }
+
+  /* Pressed look */
+  .white-key.active{background:linear-gradient(#e3e3e3,#cfcfcf);transform:translateY(6px) scale(.995);box-shadow:0 3px 8px rgba(0,0,0,0.35)}
+  .black-key.active{background:linear-gradient(#555,#333);transform:translateY(6px) scale(.995);box-shadow:0 3px 8px rgba(0,0,0,0.45)}
+
+  .legend{font-size:0.88rem;color:var(--muted);margin-top:6px}
+
+  footer{margin-top:10px;font-size:0.85rem;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+  @media(max-width:880px){
+    .white-key{width:36px;height:130px}
+    .black-key{width:24px;height:86px;left:22px}
+  }
+</style>
+</head>
+<body>
+  <div class="card" role="application" aria-label="MIDI Player Release v1.0.0">
+    <header>
+      <div>
+        <h1>MIDI Player — Release v1.0.0</h1>
+        <p>Load .mid/.midi → Enable audio → Play. Click keys or use keyboard.</p>
+      </div>
+      <div style="text-align:right">
+        <span style="font-size:0.9rem;color:var(--muted)">Built with Tone.js • @tonejs/midi</span>
+      </div>
+    </header>
+
+    <div class="controls" aria-hidden="false">
+      <div class="file-input" title="Choose MIDI file">
+        <input id="midiFile" type="file" accept=".mid,.midi" aria-label="Choose MIDI file">
+        <label for="midiFile" class="btn" role="button">📁 Choose MIDI</label>
+      </div>
+
+      <button id="enableAudio" class="btn secondary" title="Enable audio (required)">🔓 Enable Audio</button>
+      <button id="playBtn" class="btn" disabled>▶ Play</button>
+      <button id="pauseBtn" class="btn" disabled>⏸ Pause</button>
+      <button id="stopBtn" class="btn stop" disabled>⏹ Stop</button>
+
+      <div class="controls-right" style="margin-left:auto">
+        <div class="volume" aria-hidden="false">
+          <span>🔊</span>
+          <input id="volumeSlider" type="range" min="0" max="100" value="70" aria-label="Volume">
+          <span id="volumeValue">70%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div style="flex:1">
+        <div class="progress-wrap" aria-hidden="false"><div id="progress" class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100"></div></div>
+        <div class="legend">Progress</div>
+      </div>
+      <div class="time" id="time" aria-live="polite">00:00 / 00:00</div>
+    </div>
+
+    <div id="status" class="status" role="status">Ready — enable audio and load a MIDI file</div>
+
+    <div class="piano-container" aria-hidden="false">
+      <div id="piano" class="piano" tabindex="0" aria-label="On-screen piano keyboard"></div>
+    </div>
+
+    <div class="legend">Keyboard mapping (QWERTY): z s x d c v g b h n j m , → play C4..C5</div>
+
+    <footer>
+      <div>Changelog: v1.0.0 — release build; short-note visibility improved</div>
+      <div>Made for distribution</div>
+    </footer>
+  </div>
+
+<script>
+/* Release v1.0.0
+ - Uses UMD Tone.js and @tonejs/midi
+ - Minimal external dependencies
+ - Friendly, accessible UI
+*/
+
+(async function(){
+  // ---- UI elements ----
+  const midiInput = document.getElementById('midiFile');
+  const enableAudioBtn = document.getElementById('enableAudio');
+  const playBtn = document.getElementById('playBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const statusEl = document.getElementById('status');
+  const progressEl = document.getElementById('progress');
+  const timeEl = document.getElementById('time');
+  const volSlider = document.getElementById('volumeSlider');
+  const volValue = document.getElementById('volumeValue');
+  const pianoEl = document.getElementById('piano');
+
+  // ---- state ----
+  let midiObj = null;
+  let synth = null;
+  let parts = [];
+  let isAudioEnabled = false;
+  let isPlaying = false;
+  let isPaused = false;
+  let duration = 0;
+
+  // user-held notes
+  const userPressed = new Set();
+  // map for highlight timers to avoid flicker
+  const highlightTimers = new Map();
+  const MIN_VISIBLE_MS = 300; // ensures short notes visible
+
+  // ---- build piano UI ----
+  function buildPiano(){
+    pianoEl.innerHTML = '';
+    const white = ['C','D','E','F','G','A','B'];
+    const black = ['C#','D#',null,'F#','G#','A#',null];
+    for (let octave = 2; octave <= 6; octave++){
+      for (let i=0;i<white.length;i++){
+        const wrapper = document.createElement('div');
+        wrapper.className = 'white-wrapper';
+
+        const w = document.createElement('div');
+        w.className = 'white-key';
+        const note = white[i] + octave;
+        w.dataset.note = note;
+        w.textContent = note;
+        // pointer/touch handlers
+        w.addEventListener('mousedown', (ev)=>{ ev.preventDefault(); userPress(note); });
+        w.addEventListener('mouseup', (ev)=>{ ev.preventDefault(); userRelease(note); });
+        w.addEventListener('mouseleave', (ev)=>{ ev.preventDefault(); userRelease(note); });
+        w.addEventListener('touchstart', (ev)=>{ ev.preventDefault(); userPress(note); });
+        w.addEventListener('touchend', (ev)=>{ ev.preventDefault(); userRelease(note); });
+        wrapper.appendChild(w);
+
+        if (black[i]) {
+          const b = document.createElement('div');
+          b.className = 'black-key';
+          const bnote = black[i] + octave;
+          b.dataset.note = bnote;
+          b.textContent = bnote;
+          b.addEventListener('mousedown', (ev)=>{ ev.stopPropagation(); ev.preventDefault(); userPress(bnote); });
+          b.addEventListener('mouseup', (ev)=>{ ev.stopPropagation(); ev.preventDefault(); userRelease(bnote); });
+          b.addEventListener('mouseleave', (ev)=>{ ev.stopPropagation(); ev.preventDefault(); userRelease(bnote); });
+          b.addEventListener('touchstart', (ev)=>{ ev.preventDefault(); userPress(bnote); });
+          b.addEventListener('touchend', (ev)=>{ ev.preventDefault(); userRelease(bnote); });
+          wrapper.appendChild(b);
+        }
+
+        pianoEl.appendChild(wrapper);
+      }
+    }
+
+    // position black keys after layout
+    requestAnimationFrame(()=>{
+      document.querySelectorAll('.white-wrapper').forEach(wrap=>{
+        const bk = wrap.querySelector('.black-key');
+        if (bk){
+          const whiteW = wrap.getBoundingClientRect().width || 44;
+          bk.style.left = (whiteW - (bk.getBoundingClientRect().width||30)/2) + 'px';
+        }
+      });
+    });
+  }
+
+  buildPiano();
+
+  // ---- visuals helpers ----
+  function addActive(note){
+    const el = document.querySelector(`[data-note="${note}"]`);
+    if (el && !el.classList.contains('active')) el.classList.add('active');
+  }
+  function removeActive(note){
+    const el = document.querySelector(`[data-note="${note}"]`);
+    if (el) el.classList.remove('active');
+  }
+
+  // ---- synth ----
+  function createSynth(){
+    if (!synth){
+      synth = new Tone.PolySynth(Tone.Synth, {
+        oscillator:{ type: 'triangle' },
+        envelope:{ attack:0.02, decay:0.1, sustain:0.4, release:0.8 }
+      }).toDestination();
+      Tone.getDestination().volume.value = (volSlider.value / 100) * 20 - 20;
+    }
+  }
+
+  async function ensureAudio(){
+    if (!isAudioEnabled){
+      await Tone.start();
+      isAudioEnabled = true;
+      status('Audio unlocked — load MIDI and press Play', 'ready');
+      enableAudioBtn.disabled = true;
+    }
+  }
+
+  // ---- user key handling ----
+  async function userPress(note){
+    await ensureAudio();
+    createSynth();
+    if (userPressed.has(note)) return;
+    userPressed.add(note);
+    const now = Tone.now();
+    synth.triggerAttack(note, now);
+    addActive(note);
+    if (highlightTimers.has(note)) { clearTimeout(highlightTimers.get(note)); highlightTimers.delete(note); }
+  }
+
+  function userRelease(note){
+    if (!userPressed.has(note)) return;
+    userPressed.delete(note);
+    const now = Tone.now();
+    try { synth.triggerRelease(note, now); } catch(e){}
+    if (!highlightTimers.has(note)) removeActive(note);
+  }
+
+  // ---- scheduled highlights for MIDI notes ----
+  function scheduleHighlight(noteName, durationSeconds){
+    addActive(noteName);
+    if (highlightTimers.has(noteName)){
+      clearTimeout(highlightTimers.get(noteName));
+      highlightTimers.delete(noteName);
+    }
+    const ms = Math.max(MIN_VISIBLE_MS, Math.round(durationSeconds * 1000));
+    const tid = setTimeout(()=>{
+      highlightTimers.delete(noteName);
+      if (!userPressed.has(noteName)) removeActive(noteName);
+    }, ms);
+    highlightTimers.set(noteName, tid);
+  }
+
+  async function playImmediate(note){
+    await ensureAudio();
+    createSynth();
+    const now = Tone.now();
+    synth.triggerAttackRelease(note, 0.8, now);
+    scheduleHighlight(note, 0.8);
+  }
+
+  // ---- MIDI load ----
+  midiInput.addEventListener('change', async (ev)=>{
+    const file = ev.target.files[0];
+    if (!file) return;
+    try {
+      status('Loading MIDI...', '');
+      const buf = await file.arrayBuffer();
+      midiObj = new Midi(buf);
+      duration = 0;
+      midiObj.tracks.forEach(track => {
+        track.notes.forEach(n => duration = Math.max(duration, n.time + n.duration));
+      });
+      status(`Loaded: ${file.name} — ${Math.round(duration*100)/100}s`, 'ready');
+      playBtn.disabled = false; stopBtn.disabled = false; pauseBtn.disabled = false;
+      updateTime(0, duration);
+    } catch(err){
+      console.error(err);
+      status('Error parsing MIDI', 'error');
+    }
+  });
+
+  // ---- playback scheduling ----
+  async function startPlayback(){
+    if (!midiObj) { status('Load a MIDI file first', 'error'); return; }
+    await ensureAudio();
+    createSynth();
+    stopPlayback(true); // clear previous
+    const bpm = (midiObj.header && midiObj.header.tempos && midiObj.header.tempos[0]) ? midiObj.header.tempos[0].bpm : 120;
+    Tone.Transport.bpm.value = bpm || 120;
+
+    midiObj.tracks.forEach(track=>{
+      if (!track.notes || track.notes.length === 0) return;
+      const events = track.notes.map(n => [n.time, n]);
+      const part = new Tone.Part((time, note)=>{
+        if (synth) synth.triggerAttackRelease(note.name, note.duration, time, note.velocity);
+        Tone.Draw.schedule(()=> scheduleHighlight(note.name, note.duration), time);
+      }, events);
+      part.start(0);
+      parts.push(part);
+    });
+
+    Tone.Transport.seconds = 0;
+    Tone.Transport.start('+0.01');
+    isPlaying = true; isPaused = false;
+    status('Playing', 'playing');
+    updateControls();
+    requestAnimationFrame(progressLoop);
+  }
+
+  function pausePlayback(){
+    if (!isPlaying) return;
+    Tone.Transport.pause();
+    isPaused = true; isPlaying = false;
+    status('Paused', 'ready');
+    updateControls();
+  }
+
+  function stopPlayback(disposeParts=false){
+    try{ Tone.Transport.stop(); Tone.Transport.cancel(); }catch(e){}
+    if (disposeParts){
+      parts.forEach(p=>{ try{ p.dispose(); }catch(e){} });
+      parts = [];
+    }
+    isPlaying = false; isPaused = false;
+    // clear timers
+    highlightTimers.forEach(t=>clearTimeout(t)); highlightTimers.clear();
+    // clear visuals except user-held
+    document.querySelectorAll('.active').forEach(el=>{
+      const note = el.dataset.note;
+      if (!userPressed.has(note)) el.classList.remove('active');
+    });
+    updateControls();
+    updateTime(0, duration);
+    status('Stopped', 'ready');
+  }
+
+  // ---- UI helpers ----
+  function updateControls(){
+    playBtn.disabled = !midiObj || isPlaying;
+    pauseBtn.disabled = !isPlaying;
+    stopBtn.disabled = !(isPlaying || isPaused);
+  }
+
+  function progressLoop(){
+    if (!isPlaying) return;
+    const pos = Tone.Transport.seconds || 0;
+    updateTime(pos, duration);
+    if (pos >= duration) { stopPlayback(true); return; }
+    requestAnimationFrame(progressLoop);
+  }
+
+  function updateTime(current, total){
+    const fmt = s => { const m = Math.floor(s/60); const sec = Math.floor(s%60); return `${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`; };
+    timeEl.textContent = `${fmt(current||0)} / ${fmt(total||0)}`;
+    const pct = total ? Math.min(100, (current/total) * 100) : 0;
+    progressEl.style.width = pct + '%';
+  }
+
+  function status(text, cls=''){
+    statusEl.textContent = text; statusEl.className = 'status ' + cls;
+  }
+
+  // ---- event wiring ----
+  enableAudioBtn.addEventListener('click', async ()=>{
+    try { await Tone.start(); isAudioEnabled = true; createSynth(); status('Audio unlocked — load a MIDI file and press Play', 'ready'); enableAudioBtn.disabled = true; }
+    catch(e){ console.error(e); status('Failed to enable audio (see console)', 'error'); }
+  });
+
+  playBtn.addEventListener('click', async ()=>{
+    if (!midiObj) { status('Please load a MIDI file first', 'error'); return; }
+    if (!isAudioEnabled) { try { await Tone.start(); isAudioEnabled = true; enableAudioBtn.disabled = true; } catch(e){ console.warn(e);} }
+    if (isPaused){ Tone.Transport.start(); isPlaying = true; isPaused = false; status('Playing (resumed)', 'playing'); updateControls(); requestAnimationFrame(progressLoop); }
+    else startPlayback();
+  });
+
+  pauseBtn.addEventListener('click', ()=> pausePlayback());
+  stopBtn.addEventListener('click', ()=> stopPlayback(true));
+
+  volSlider.addEventListener('input', (e)=>{
+    const v = +e.target.value; volValue.textContent = v + '%';
+    if (Tone.getDestination()) Tone.getDestination().volume.value = (v/100) * 20 - 20;
+  });
+
+  // keyboard mapping (QWERTY portion)
+  const keyToNote = { 'z':'C4','s':'C#4','x':'D4','d':'D#4','c':'E4','v':'F4','g':'F#4','b':'G4','h':'G#4','n':'A4','j':'A#4','m':'B4',',':'C5' };
+  const keysDown = new Set();
+  window.addEventListener('keydown', (e)=>{
+    const note = keyToNote[e.key];
+    if (!note) return;
+    if (keysDown.has(e.key)) return;
+    keysDown.add(e.key);
+    userPress(note);
+  });
+  window.addEventListener('keyup', (e)=>{
+    const note = keyToNote[e.key];
+    if (!note) return;
+    keysDown.delete(e.key);
+    userRelease(note);
+  });
+
+  // expose minimal debug only when devtools wanted (safe)
+  // window._midiPlayer = { playImmediate, startPlayback, stopPlayback, userPress, userRelease };
+
+  // End of setup
+})();
+</script>
+</body>
+</html>
